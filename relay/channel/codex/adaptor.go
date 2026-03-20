@@ -21,6 +21,8 @@ import (
 type Adaptor struct {
 }
 
+const codexPromptCacheKeyContextKey = "codex_prompt_cache_key"
+
 func (a *Adaptor) ConvertGeminiRequest(c *gin.Context, info *relaycommon.RelayInfo, request *dto.GeminiChatRequest) (any, error) {
 	return nil, errors.New("codex channel: endpoint not supported")
 }
@@ -96,8 +98,33 @@ func (a *Adaptor) ConvertOpenAIResponsesRequest(c *gin.Context, info *relaycommo
 		request.Instructions = json.RawMessage(`""`)
 	}
 
+	if len(request.PromptCacheKey) == 0 {
+		if sessionID := getCodexSessionID(c); sessionID != "" {
+			promptCacheKey, err := common.Marshal(sessionID)
+			if err != nil {
+				return nil, err
+			}
+			request.PromptCacheKey = promptCacheKey
+		}
+	}
+	if promptCacheKey := rawMessageToString(request.PromptCacheKey); promptCacheKey != "" {
+		c.Set(codexPromptCacheKeyContextKey, promptCacheKey)
+	}
+
 	if isCompact {
 		return request, nil
+	}
+
+	if len(request.Include) == 0 {
+		request.Include = json.RawMessage(`["reasoning.encrypted_content"]`)
+	}
+	if hasCodexTools(request.Tools) {
+		if len(request.ToolChoice) == 0 {
+			request.ToolChoice = json.RawMessage(`"auto"`)
+		}
+		if len(request.ParallelToolCalls) == 0 {
+			request.ParallelToolCalls = json.RawMessage(`true`)
+		}
 	}
 	// codex: store must be false
 	request.Store = json.RawMessage("false")
@@ -177,6 +204,18 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	if req.Get("originator") == "" {
 		req.Set("originator", "codex_cli_rs")
 	}
+	if req.Get("session_id") == "" {
+		if sessionID, _ := c.Get(codexPromptCacheKeyContextKey); sessionID != nil {
+			if sessionIDStr, ok := sessionID.(string); ok && strings.TrimSpace(sessionIDStr) != "" {
+				req.Set("session_id", strings.TrimSpace(sessionIDStr))
+			}
+		}
+		if req.Get("session_id") == "" {
+			if sessionID := getCodexSessionID(c); sessionID != "" {
+				req.Set("session_id", sessionID)
+			}
+		}
+	}
 
 	// chatgpt.com/backend-api/codex/responses is strict about Content-Type.
 	// Clients may omit it or include parameters like `application/json; charset=utf-8`,
@@ -189,4 +228,33 @@ func (a *Adaptor) SetupRequestHeader(c *gin.Context, req *http.Header, info *rel
 	}
 
 	return nil
+}
+
+func getCodexSessionID(c *gin.Context) string {
+	if c == nil || c.Request == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.Request.Header.Get("session_id"))
+}
+
+func hasCodexTools(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed != "null" && trimmed != "[]"
+}
+
+func rawMessageToString(raw json.RawMessage) string {
+	if len(raw) == 0 {
+		return ""
+	}
+
+	var str string
+	if err := common.Unmarshal(raw, &str); err == nil {
+		return strings.TrimSpace(str)
+	}
+
+	var value any
+	if err := common.Unmarshal(raw, &value); err == nil {
+		return strings.TrimSpace(common.Interface2String(value))
+	}
+	return ""
 }

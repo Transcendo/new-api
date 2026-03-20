@@ -236,15 +236,20 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 		service.ObserveChannelAffinityUsageCacheByRelayFormat(ctx, usage, relayInfo.GetFinalRequestRelayFormat())
 	}
 
+	billingUsage := usage
+	if usage != nil {
+		billingUsage = service.NormalizeUsageForBilling(relayInfo, usage)
+	}
+
 	adminRejectReason := common.GetContextKeyString(ctx, constant.ContextKeyAdminRejectReason)
 
 	useTimeSeconds := time.Now().Unix() - relayInfo.StartTime.Unix()
-	promptTokens := usage.PromptTokens
-	cacheTokens := usage.PromptTokensDetails.CachedTokens
-	imageTokens := usage.PromptTokensDetails.ImageTokens
-	audioTokens := usage.PromptTokensDetails.AudioTokens
-	completionTokens := usage.CompletionTokens
-	cachedCreationTokens := usage.PromptTokensDetails.CachedCreationTokens
+	promptTokens := billingUsage.PromptTokens
+	cacheTokens := billingUsage.PromptTokensDetails.CachedTokens
+	imageTokens := billingUsage.PromptTokensDetails.ImageTokens
+	audioTokens := billingUsage.PromptTokensDetails.AudioTokens
+	completionTokens := billingUsage.CompletionTokens
+	cachedCreationTokens := billingUsage.PromptTokensDetails.CachedCreationTokens
 
 	modelName := relayInfo.OriginModelName
 
@@ -406,7 +411,18 @@ func postConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage 
 	}
 
 	quota := int(quotaCalculateDecimal.Round(0).IntPart())
-	totalTokens := promptTokens + completionTokens
+	totalTokens := usage.TotalTokens
+	if totalTokens == 0 {
+		rawPromptTokens := usage.InputTokens
+		if rawPromptTokens == 0 {
+			rawPromptTokens = usage.PromptTokens
+		}
+		rawCompletionTokens := usage.OutputTokens
+		if rawCompletionTokens == 0 {
+			rawCompletionTokens = usage.CompletionTokens
+		}
+		totalTokens = rawPromptTokens + rawCompletionTokens
+	}
 
 	//var logContent string
 
