@@ -186,6 +186,7 @@ const EditChannelModal = (props) => {
     // 渠道额外设置的默认值
     force_format: false,
     thinking_to_content: false,
+    test_stream_enabled: false,
     proxy: '',
     pass_through_body_enabled: false,
     system_prompt: '',
@@ -839,6 +840,8 @@ const EditChannelModal = (props) => {
           data.force_format = parsedSettings.force_format || false;
           data.thinking_to_content =
             parsedSettings.thinking_to_content || false;
+          data.test_stream_enabled =
+            parsedSettings.test_stream_enabled || false;
           data.proxy = parsedSettings.proxy || '';
           data.pass_through_body_enabled =
             parsedSettings.pass_through_body_enabled || false;
@@ -849,6 +852,7 @@ const EditChannelModal = (props) => {
           console.error('解析渠道设置失败:', error);
           data.force_format = false;
           data.thinking_to_content = false;
+          data.test_stream_enabled = false;
           data.proxy = '';
           data.pass_through_body_enabled = false;
           data.system_prompt = '';
@@ -857,6 +861,7 @@ const EditChannelModal = (props) => {
       } else {
         data.force_format = false;
         data.thinking_to_content = false;
+        data.test_stream_enabled = false;
         data.proxy = '';
         data.pass_through_body_enabled = false;
         data.system_prompt = '';
@@ -962,6 +967,7 @@ const EditChannelModal = (props) => {
       setChannelSettings({
         force_format: data.force_format,
         thinking_to_content: data.thinking_to_content,
+        test_stream_enabled: data.test_stream_enabled || false,
         proxy: data.proxy,
         pass_through_body_enabled: data.pass_through_body_enabled,
         system_prompt: data.system_prompt,
@@ -1320,6 +1326,7 @@ const EditChannelModal = (props) => {
     setChannelSettings({
       force_format: false,
       thinking_to_content: false,
+      test_stream_enabled: false,
       proxy: '',
       pass_through_body_enabled: false,
       system_prompt: '',
@@ -1686,6 +1693,7 @@ const EditChannelModal = (props) => {
     const channelExtraSettings = {
       force_format: localInputs.force_format || false,
       thinking_to_content: localInputs.thinking_to_content || false,
+      test_stream_enabled: localInputs.test_stream_enabled || false,
       proxy: localInputs.proxy || '',
       pass_through_body_enabled: localInputs.pass_through_body_enabled || false,
       system_prompt: localInputs.system_prompt || '',
@@ -1766,6 +1774,7 @@ const EditChannelModal = (props) => {
     // 清理不需要发送到后端的字段
     delete localInputs.force_format;
     delete localInputs.thinking_to_content;
+    delete localInputs.test_stream_enabled;
     delete localInputs.proxy;
     delete localInputs.pass_through_body_enabled;
     delete localInputs.system_prompt;
@@ -3866,6 +3875,22 @@ const EditChannelModal = (props) => {
                       }
                       extraText={t(
                         '将 reasoning_content 转换为 <think> 标签拼接到内容中',
+                      )}
+                    />
+
+                    <Form.Switch
+                      field='test_stream_enabled'
+                      label={t('测试时使用流式')}
+                      checkedText={t('开')}
+                      uncheckedText={t('关')}
+                      onChange={(value) =>
+                        handleChannelSettingsChange(
+                          'test_stream_enabled',
+                          value,
+                        )
+                      }
+                      extraText={t(
+                        '用于定时测试与单渠道快速测试；模型测试弹窗中的 stream 选项可临时覆盖',
                       )}
                     />
 

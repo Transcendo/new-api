@@ -56,6 +56,17 @@ func normalizeChannelTestEndpoint(channel *model.Channel, modelName, endpointTyp
 	return normalized
 }
 
+func resolveChannelTestStream(channel *model.Channel, raw string) bool {
+	if raw != "" {
+		isStream, _ := strconv.ParseBool(raw)
+		return isStream
+	}
+	if channel == nil {
+		return false
+	}
+	return channel.GetSetting().TestStreamEnabled
+}
+
 func testChannel(channel *model.Channel, testModel string, endpointType string, isStream bool) testResult {
 	tik := time.Now()
 	var unsupportedTestChannelTypes = []int{
@@ -752,7 +763,7 @@ func TestChannel(c *gin.Context) {
 	//}()
 	testModel := c.Query("model")
 	endpointType := c.Query("endpoint_type")
-	isStream, _ := strconv.ParseBool(c.Query("stream"))
+	isStream := resolveChannelTestStream(channel, c.Query("stream"))
 	tik := time.Now()
 	result := testChannel(channel, testModel, endpointType, isStream)
 	if result.localErr != nil {
@@ -816,7 +827,7 @@ func testAllChannels(notify bool) error {
 			}
 			isChannelEnabled := channel.Status == common.ChannelStatusEnabled
 			tik := time.Now()
-			result := testChannel(channel, "", "", false)
+			result := testChannel(channel, "", "", channel.GetSetting().TestStreamEnabled)
 			tok := time.Now()
 			milliseconds := tok.Sub(tik).Milliseconds()
 

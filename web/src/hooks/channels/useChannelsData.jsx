@@ -863,7 +863,7 @@ export const useChannelsData = () => {
     record,
     model,
     endpointType = '',
-    stream = false,
+    stream = undefined,
   ) => {
     const testKey = `${record.id}-${model}`;
 
@@ -880,8 +880,8 @@ export const useChannelsData = () => {
       if (endpointType) {
         url += `&endpoint_type=${endpointType}`;
       }
-      if (stream) {
-        url += `&stream=true`;
+      if (typeof stream === 'boolean') {
+        url += `&stream=${stream}`;
       }
       const res = await API.get(url);
 
