@@ -124,6 +124,18 @@ const PARAM_OVERRIDE_OPERATIONS_TEMPLATE = {
   ],
 };
 
+const CODEX_RELATED_MODELS = [
+  'gpt-5.1',
+  'gpt-5.1-codex-max',
+  'gpt-5.1-codex-mini',
+  'gpt-5.2',
+  'gpt-5.2-codex',
+  'gpt-5.3-codex',
+  'gpt-5.3-codex-spark',
+  'gpt-5.4',
+  'gpt-5.4-mini',
+];
+
 // 支持并且已适配通过接口获取模型列表的渠道类型
 const MODEL_FETCHABLE_TYPES = new Set([
   1, 4, 14, 34, 17, 26, 27, 24, 47, 25, 20, 23, 31, 40, 42, 48, 43,
@@ -649,6 +661,9 @@ const EditChannelModal = (props) => {
             ...prevInputs,
             base_url: 'https://ark.cn-beijing.volces.com',
           }));
+          break;
+        case 57:
+          localModels = CODEX_RELATED_MODELS;
           break;
         default:
           localModels = getChannelModels(value);
@@ -1270,7 +1285,8 @@ const EditChannelModal = (props) => {
       if (formApiRef.current) {
         formApiRef.current.setValues(originInputs);
       }
-      let localModels = getChannelModels(inputs.type);
+      let localModels =
+        inputs.type === 57 ? CODEX_RELATED_MODELS : getChannelModels(inputs.type);
       setBasicModels(localModels);
       setInputs((inputs) => ({ ...inputs, models: localModels }));
     }
