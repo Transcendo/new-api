@@ -977,7 +977,9 @@ const EditChannelModal = (props) => {
       }
       // 同步企业账户状态
       setIsEnterpriseAccount(data.is_enterprise_account || false);
-      setBasicModels(getChannelModels(data.type));
+      setBasicModels(
+        data.type === 57 ? CODEX_RELATED_MODELS : getChannelModels(data.type),
+      );
       // 同步更新channelSettings状态显示
       setChannelSettings({
         force_format: data.force_format,
@@ -3176,7 +3178,12 @@ const EditChannelModal = (props) => {
                             size='small'
                             type='primary'
                             onClick={() =>
-                              handleInputChange('models', basicModels)
+                              handleInputChange(
+                                'models',
+                                inputs.type === 57
+                                  ? CODEX_RELATED_MODELS
+                                  : basicModels,
+                              )
                             }
                           >
                             {t('填入相关模型')}
