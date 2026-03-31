@@ -35,6 +35,16 @@ func getScannerBufferSize() int {
 }
 
 func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string) bool) {
+	streamScannerHandlerInternal(c, resp, info, dataHandler, true)
+}
+
+// StreamScannerHandlerRaw reads SSE events without setting event-stream headers or enabling ping.
+// Used when consuming an upstream SSE stream but returning a non-stream JSON response to the client.
+func StreamScannerHandlerRaw(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string) bool) {
+	streamScannerHandlerInternal(c, resp, info, dataHandler, false)
+}
+
+func streamScannerHandlerInternal(c *gin.Context, resp *http.Response, info *relaycommon.RelayInfo, dataHandler func(data string) bool, streamMode bool) {
 
 	if resp == nil || dataHandler == nil {
 		return
@@ -58,11 +68,15 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 		wg         sync.WaitGroup // 用于等待所有 goroutine 退出
 	)
 
-	generalSettings := operation_setting.GetGeneralSetting()
-	pingEnabled := generalSettings.PingIntervalEnabled && !info.DisablePing
-	pingInterval := time.Duration(generalSettings.PingIntervalSeconds) * time.Second
-	if pingInterval <= 0 {
-		pingInterval = DefaultPingInterval
+	pingEnabled := false
+	pingInterval := DefaultPingInterval
+	if streamMode {
+		generalSettings := operation_setting.GetGeneralSetting()
+		pingEnabled = generalSettings.PingIntervalEnabled && !info.DisablePing
+		pingInterval = time.Duration(generalSettings.PingIntervalSeconds) * time.Second
+		if pingInterval <= 0 {
+			pingInterval = DefaultPingInterval
+		}
 	}
 
 	if pingEnabled {
@@ -106,7 +120,9 @@ func StreamScannerHandler(c *gin.Context, resp *http.Response, info *relaycommon
 
 	scanner.Buffer(make([]byte, InitialScannerBufferSize), getScannerBufferSize())
 	scanner.Split(bufio.ScanLines)
-	SetEventStreamHeaders(c)
+	if streamMode {
+		SetEventStreamHeaders(c)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

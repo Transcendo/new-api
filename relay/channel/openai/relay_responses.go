@@ -60,6 +60,103 @@ func OaiResponsesHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http
 	return usage, nil
 }
 
+// OaiResponsesStreamToNonStreamHandler consumes an upstream SSE stream and assembles
+// a complete non-stream JSON response to return to the client.
+// Used by channels (e.g. Codex) where the upstream only supports streaming.
+func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
+	if resp == nil || resp.Body == nil {
+		logger.LogError(c, "invalid response or response body")
+		return nil, types.NewError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse)
+	}
+
+	defer service.CloseResponseBodyGracefully(resp)
+
+	var usage = &dto.Usage{}
+	var responsesResponse *dto.OpenAIResponsesResponse
+	var responseTextBuilder strings.Builder
+
+	helper.StreamScannerHandlerRaw(c, resp, info, func(data string) bool {
+		var streamResponse dto.ResponsesStreamResponse
+		if err := common.UnmarshalJsonStr(data, &streamResponse); err != nil {
+			logger.LogError(c, "failed to unmarshal stream response: "+err.Error())
+			return true
+		}
+		switch streamResponse.Type {
+		case "response.completed":
+			if streamResponse.Response != nil {
+				responsesResponse = streamResponse.Response
+				if streamResponse.Response.Usage != nil {
+					dto.ApplyOpenAIResponsesUsage(usage, streamResponse.Response.Usage)
+				}
+				if streamResponse.Response.HasImageGenerationCall() {
+					c.Set("image_generation_call", true)
+					c.Set("image_generation_call_quality", streamResponse.Response.GetQuality())
+					c.Set("image_generation_call_size", streamResponse.Response.GetSize())
+				}
+			}
+		case "response.output_text.delta":
+			responseTextBuilder.WriteString(streamResponse.Delta)
+		case dto.ResponsesOutputTypeItemDone:
+			if streamResponse.Item != nil {
+				switch streamResponse.Item.Type {
+				case dto.BuildInCallWebSearchCall:
+					if info != nil && info.ResponsesUsageInfo != nil && info.ResponsesUsageInfo.BuiltInTools != nil {
+						if webSearchTool, exists := info.ResponsesUsageInfo.BuiltInTools[dto.BuildInToolWebSearchPreview]; exists && webSearchTool != nil {
+							webSearchTool.CallCount++
+						}
+					}
+				}
+			}
+		}
+		return true
+	})
+
+	if responsesResponse == nil {
+		return nil, types.NewError(fmt.Errorf("codex: no response.completed event received from upstream stream"), types.ErrorCodeBadResponse)
+	}
+
+	responseBody, err := common.Marshal(responsesResponse)
+	if err != nil {
+		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	}
+
+	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+	}
+
+	service.IOCopyBytesGracefully(c, resp, responseBody)
+
+	if usage.CompletionTokens == 0 {
+		tempStr := responseTextBuilder.String()
+		if len(tempStr) > 0 {
+			completionTokens := service.CountTextToken(tempStr, info.UpstreamModelName)
+			usage.CompletionTokens = completionTokens
+		}
+	}
+
+	if usage.PromptTokens == 0 && usage.CompletionTokens != 0 {
+		usage.PromptTokens = info.GetEstimatePromptTokens()
+	}
+
+	if usage.TotalTokens == 0 {
+		usage.TotalTokens = usage.PromptTokens + usage.CompletionTokens
+	}
+
+	if info == nil || info.ResponsesUsageInfo == nil || info.ResponsesUsageInfo.BuiltInTools == nil {
+		return usage, nil
+	}
+	for _, tool := range responsesResponse.Tools {
+		buildToolinfo, ok := info.ResponsesUsageInfo.BuiltInTools[common.Interface2String(tool["type"])]
+		if !ok || buildToolinfo == nil {
+			logger.LogError(c, fmt.Sprintf("BuiltInTools not found for tool type: %v", tool["type"]))
+			continue
+		}
+		buildToolinfo.CallCount++
+	}
+
+	return usage, nil
+}
+
 func OaiResponsesStreamHandler(c *gin.Context, info *relaycommon.RelayInfo, resp *http.Response) (*dto.Usage, *types.NewAPIError) {
 	if resp == nil || resp.Body == nil {
 		logger.LogError(c, "invalid response or response body")
