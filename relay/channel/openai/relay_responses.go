@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -69,10 +70,11 @@ func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.Rela
 		return nil, types.NewError(fmt.Errorf("invalid response"), types.ErrorCodeBadResponse)
 	}
 
-	defer service.CloseResponseBodyGracefully(resp)
+	// resp.Body is closed by streamScannerHandlerInternal, no need to close here
 
 	var usage = &dto.Usage{}
 	var responsesResponse *dto.OpenAIResponsesResponse
+	var rawResponseBytes []byte
 	var responseTextBuilder strings.Builder
 
 	helper.StreamScannerHandlerRaw(c, resp, info, func(data string) bool {
@@ -83,6 +85,14 @@ func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.Rela
 		}
 		switch streamResponse.Type {
 		case "response.completed":
+			// Extract raw response JSON to preserve all fields (including Codex-specific ones)
+			var rawParsed struct {
+				Response json.RawMessage `json:"response"`
+			}
+			if err := common.UnmarshalJsonStr(data, &rawParsed); err == nil && rawParsed.Response != nil {
+				rawResponseBytes = []byte(rawParsed.Response)
+			}
+			// Also parse into typed struct for usage/image/error extraction
 			if streamResponse.Response != nil {
 				responsesResponse = streamResponse.Response
 				if streamResponse.Response.Usage != nil {
@@ -111,20 +121,18 @@ func OaiResponsesStreamToNonStreamHandler(c *gin.Context, info *relaycommon.Rela
 		return true
 	})
 
-	if responsesResponse == nil {
+	if rawResponseBytes == nil {
 		return nil, types.NewError(fmt.Errorf("codex: no response.completed event received from upstream stream"), types.ErrorCodeBadResponse)
 	}
 
-	responseBody, err := common.Marshal(responsesResponse)
-	if err != nil {
-		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+	if responsesResponse != nil {
+		if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+			return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+		}
 	}
 
-	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
-		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
-	}
-
-	service.IOCopyBytesGracefully(c, resp, responseBody)
+	// Write JSON response with correct headers (don't copy upstream SSE headers)
+	c.Data(http.StatusOK, "application/json; charset=utf-8", rawResponseBytes)
 
 	if usage.CompletionTokens == 0 {
 		tempStr := responseTextBuilder.String()
